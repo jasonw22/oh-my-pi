@@ -249,21 +249,26 @@ describe("hashlineEditParamsSchema — payload shape", () => {
 
 	// Helper to get JSON schema from arktype schema
 	function getJsonSchema(schema: Type) {
-		return schema.toJsonSchema() ?? {};
+		return schema.toJsonSchema({ fallback: ctx => ctx.base }) ?? {};
 	}
 
-	it("declares only `input` as the model-facing field", () => {
-		// Create an arktype schema that mirrors hashlineEditParamsSchema structure
-		const testSchema = type({
-			input: "string",
-		});
-		const jsonSchema = getJsonSchema(testSchema) as {
+	it("declares `input` as the sole model-facing field, required and non-nullable", () => {
+		// The wire schema must expose exactly one property — `input` — listed
+		// in `required` as a plain `string` (no `anyOf`/nullable branch). The
+		// OpenAI-style strict-mode path leaves required string properties
+		// untouched, so the model cannot legally emit `{ "input": null }` —
+		// the null-input retry loop that GLM-5.x fell into is eliminated at the
+		// schema level rather than only at validation time.
+		const jsonSchema = getJsonSchema(hashlineEditParamsSchema) as {
 			properties?: Record<string, unknown>;
 			required?: string[];
 		};
 
 		expect(Object.keys(jsonSchema.properties ?? {})).toEqual(["input"]);
 		expect(jsonSchema.required).toEqual(["input"]);
+		const inputProp = jsonSchema.properties?.input as Record<string, unknown> | undefined;
+		expect(inputProp?.type).toBe("string");
+		expect(inputProp).not.toHaveProperty("anyOf");
 	});
 
 	it("tolerates provider extra fields without declaring `path`", () => {
@@ -274,12 +279,12 @@ describe("hashlineEditParamsSchema — payload shape", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it("accepts `_input` as a provider-emitted alias for `input`", () => {
+	it("rejects `input: null` (the null-input failure mode)", () => {
 		const result = arkSafeParse(hashlineEditParamsSchema, {
+			input: null,
 			_input: `[x.ts]\nINS.HEAD:\n${repl("x")}`,
 		});
-		expect(result.success).toBe(true);
-		if (result.success) expect(result.data.input).toBe(`[x.ts]\nINS.HEAD:\n${repl("x")}`);
+		expect(result.success).toBe(false);
 	});
 
 	it("still requires `input`", () => {

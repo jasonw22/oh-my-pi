@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the `edit` tool's hashline schema allowing the model to legally emit `input: null`, causing a validation/retry loop that burned cycles before falling back to `write` (notably GLM-5.x via OpenRouter). The ArkType schema declared both `input?` and `_input?` as optional properties; OpenAI-style strict-mode normalization (`enforceStrictSchema`) promoted both to `required` + `anyOf: [string, null]`, so the model could satisfy the wire schema with `{ "input": null }` even though the runtime `requiredInputSchema` then rejected it. The `_input` provider-emitted alias (added in `0246904` via Zod `.preprocess()` + `.passthrough()`, where it was invisible to the wire) had been accidentally promoted to a declared property by the Zod→ArkType migration (`a050474`). The schema now declares `input` as a single required `string` — no `_input` alias, no morph — so the wire schema exposes one non-nullable required field and strict mode leaves it untouched. The `_input` alias is dropped; the schema is permissive for other extra keys (ArkType allows undeclared properties by default).
+
 ## [16.1.11] - 2026-06-21
 
 ### Added
